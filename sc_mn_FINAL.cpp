@@ -1,7 +1,4 @@
 /* 	Run Multinest for Late-type stellar density profile analysis
- 
-    Likelihood is calculated
-
 
 */
 
@@ -401,7 +398,7 @@ int main(int argc, char *argv[])
 	{
 	  while (!in.eof())
 	    {
-	      in >> tmp1 >> tmp2;
+	      in >> tmp1 >> tmp2 >> tmp3 >> tmp4;
 	      r2dvm.push_back(tmp1);
 	      pOldvm.push_back(tmp2);
 	      tmpvalue = sqrt(max_r*max_r - tmp1*tmp1);
@@ -409,7 +406,6 @@ int main(int argc, char *argv[])
 	      starlikevm.push_back(0.0);
 	      like_returnvm.push_back(0.0);
           lnl_vm.push_back(0.0);
-          addlnL_m.push_back(0.0);
 	    }
 	}
       in.close();

@@ -6,7 +6,7 @@ from scipy import integrate
 from gcwork import starTables
 import nmpfit_sy
 import asciidata, os, sys, pickle
-import nmpfit_sy2 as nmpfit_sy
+import nmpfit_sy#2 as nmpfit_sy
 import numpy as np
 import math
 import pdb
@@ -21,16 +21,26 @@ import threading
 from astropy.stats import LombScargle
 import pylab as py
 import mysql.connector
+import scYoung
+
+homeRoot = '/u/schappell/'
+plotRoot = homeRoot+'plots/'
+tableRoot = homeRoot+'tables/'
+cRoot = homeRoot+'code/c/'
+mnoutRoot = homeRoot+'pmnOld/'
 
 pi = math.pi
 
 #constants and dimensional analysis
 mass = 3.960e6 #mass of Sgr A*, in solar masses, according to my align
+masse = 0.164e6
 dist = 7828.0 #distance to Sgr A*, in pc, according to my align
 G = 6.6726e-8
 msun = 1.99e33
 GM = G * mass * msun
+GMe = G * masse * msun
 mass_g = mass * msun
+masse_g = masse * msun
 sec_in_yr = 3.1557e7
 cm_in_au = 1.496e13
 cm_in_pc = 3.086e18
@@ -191,13 +201,15 @@ class one_star():
         self.years = pointsFile[:,0]
         self.x = pointsFile[:,1]
         self.y = pointsFile[:,2]
+        #self.path_length = np.array([math.sqrt((self.x[i]-self.x[i+1])**2 +(self.y[i]-self.y[i+1])**2) for i in range(len(self.x)-1)])
+        #self.totpl = np.sum(self.path_length)
         self.xe = pointsFile[:,3]
         self.ye = pointsFile[:,4]
         self.epoch = len(pointsFile[:,0])
         self.fit = 'Point'
 
 #search database for this star, save info about stars designated as late/early type and magnitude
-        database = mysql.connector.connect(host="*********",user="**********",passwd="*******",db="*******")
+        database = mysql.connector.connect(host="galaxy1.astro.ucla.edu",user="dbread",passwd="t36fCEtw",db="gcg")
         cur = database.cursor()
         cur.execute("SELECT young, old, kp, Ak_sch FROM stars WHERE name='{0}'".format(sname))
         for row in cur:
@@ -229,7 +241,7 @@ class one_star():
 
 #get radial velocity information from another table in database
     def get_vz(self):
-        database = mysql.connector.connect(host="*********",user="**********",passwd="*******",db="*******")
+        database = mysql.connector.connect(host="galaxy1.astro.ucla.edu",user="dbread",passwd="t36fCEtw",db="gcg")
         cur = database.cursor()
         cur.execute("SELECT ddate, vlsr, vz_err FROM spectra WHERE name='{0}'".format(self.name))
         tmp_date = np.array([])
@@ -271,6 +283,13 @@ class one_star():
             self.v_ychi2 = ychi2
             self.v_xchi2r = self.v_xchi2 / (self.epoch - 2.0)
             self.v_ychi2r = self.v_ychi2 / (self.epoch - 2.0)
+            vmod_xdiff = self.v_xv*(self.years[0] - self.v_xt0) - self.v_xv*(self.years[-1] - self.v_xt0)
+            vmod_ydiff = self.v_yv*(self.years[0] - self.v_yt0) - self.v_yv*(self.years[-1] - self.v_yt0)
+            self.v_modelPL = math.sqrt(vmod_xdiff**2 + vmod_ydiff**2)
+            self.v_xres = self.x - (self.v_x0 + self.v_xv*(self.years - self.v_xt0))
+            self.v_yres = self.y - (self.v_y0 + self.v_yv*(self.years - self.v_yt0))
+            self.v_xres_sig = self.v_xres / self.xe
+            self.v_yres_sig = self.v_yres / self.ye
 
 #For now, as no other kinematic fits tested, set the star's overall kinematic constants
 #to that from velocity fit
@@ -289,6 +308,11 @@ class one_star():
             self.ychi2 = ychi2
             self.xchi2r = self.xchi2 / (self.epoch - 2.0)
             self.ychi2r = self.ychi2 / (self.epoch - 2.0)
+            self.modelPL = math.sqrt(vmod_xdiff**2 + vmod_ydiff**2)
+            self.xres = self.x - (self.v_x0 + self.v_xv*(self.years - self.v_xt0))
+            self.yres = self.y - (self.v_y0 + self.v_yv*(self.years - self.v_yt0))
+            self.xres_sig = self.v_xres / self.xe
+            self.yres_sig = self.v_yres / self.ye
 
         else:
             print self.name+' has less than 3 epochs, no velocity fit'
@@ -334,6 +358,13 @@ class one_star():
             self.a_ychi2 = ychi2
             self.a_xchi2r = self.a_xchi2 / (self.epoch - 3.0)
             self.a_ychi2r = self.a_ychi2 / (self.epoch - 3.0)
+            amod_xdiff = self.a_xv*(self.years[0] - self.a_xt0) - self.a_xv*(self.years[-1] - self.a_xt0) + 0.5*self.a_xa*(self.years[0] - self.a_xt0)**2 - 0.5*self.a_xa*(self.years[-1] - self.a_xt0)**2
+            amod_ydiff = self.a_yv*(self.years[0] - self.a_yt0) - self.a_yv*(self.years[-1] - self.a_yt0) + 0.5*self.a_ya*(self.years[0] - self.a_yt0)**2 - 0.5*self.a_ya*(self.years[-1] - self.a_yt0)**2
+            self.a_modelPL = math.sqrt(amod_xdiff**2 + amod_ydiff**2)
+            self.a_xres = self.x - (self.a_x0 + self.a_xv*(self.years - self.a_xt0) + 0.5*self.a_xa*(self.years - self.a_xt0)**2)
+            self.a_yres = self.y - (self.a_y0 + self.a_yv*(self.years - self.a_yt0) + 0.5*self.a_ya*(self.years - self.a_yt0)**2)
+            self.a_xres_sig = self.a_xres / self.xe
+            self.a_yres_sig = self.a_yres / self.ye
 
 #Calculating value corresponding to input P Value
             signif = scipy.special.erfc(pval/math.sqrt(2.0))
@@ -372,11 +403,16 @@ class one_star():
                 self.ychi2 = ychi2
                 self.xchi2r = self.xchi2 / (self.epoch - 3.0)
                 self.ychi2r = self.ychi2 / (self.epoch - 3.0)
+                self.modelPL = math.sqrt(amod_xdiff**2 + amod_ydiff**2)
+                self.xres = self.x - (self.a_x0 + self.a_xv*(self.years - self.a_xt0) + 0.5*self.a_xa*(self.years - self.a_xt0)**2)
+                self.yres = self.y - (self.a_y0 + self.a_yv*(self.years - self.a_yt0) + 0.5*self.a_ya*(self.years - self.a_yt0)**2)
+                self.xres_sig = self.a_xres / self.xe
+                self.yres_sig = self.a_yres / self.ye
 
         elif ( hasattr(self, 'v_xv')==False):
             print 'Need to run set_vel for '+self.name
         else:
-            print sname+' has less than 4 epochs, no accel fit'
+            print self.name+' has less than 4 epochs, no accel fit'
 
 
     def set_jerk(self, xt0, yt0, x0, y0, x0e, y0e, xv, yv, xve, yve, xa, ya, xae, yae, xj, yj, xje, yje, xchi2, ychi2,pval=4.0):
@@ -422,6 +458,13 @@ class one_star():
             self.j_ychi2 = ychi2
             self.j_xchi2r = self.j_xchi2 / (self.epoch - 4.0)
             self.j_ychi2r = self.j_ychi2 / (self.epoch - 4.0)
+            jmod_xdiff = self.j_xv*(self.years[0] - self.j_xt0) - self.j_xv*(self.years[-1] - self.j_xt0) + 0.5*self.j_xa*(self.years[0] - self.j_xt0)**2 - 0.5*self.j_xa*(self.years[-1] - self.j_xt0)**2 + self.j_xj*(self.years[0] - self.j_xt0)**3/6.0 - self.j_xj*(self.years[-1] - self.j_xt0)**3/6.0
+            jmod_ydiff = self.j_yv*(self.years[0] - self.j_yt0) - self.j_yv*(self.years[-1] - self.j_yt0) + 0.5*self.j_ya*(self.years[0] - self.j_yt0)**2 - 0.5*self.j_ya*(self.years[-1] - self.j_yt0)**2 + self.j_yj*(self.years[0] - self.j_yt0)**3/6.0 - self.j_yj*(self.years[-1] - self.j_yt0)**3/6.0
+            self.j_modelPL = math.sqrt(jmod_xdiff**2 + jmod_ydiff**2)
+            self.j_xres = self.x - (self.j_x0 + self.j_xv*(self.years - self.j_xt0) + 0.5*self.j_xa*(self.years - self.j_xt0)**2 + self.j_xj*(self.years - self.j_xt0)**3/6.0)
+            self.j_yres = self.y - (self.j_y0 + self.j_yv*(self.years - self.j_yt0) + 0.5*self.j_ya*(self.years - self.j_yt0)**2 + self.j_yj*(self.years - self.j_yt0)**3/6.0)
+            self.j_xres_sig = self.j_xres / self.xe
+            self.j_yres_sig = self.j_yres / self.ye
 
 #Run F test between accel and jerk, only if passes F Test between velocity and accel
             if (self.fit == 'Acc'):
@@ -464,11 +507,16 @@ class one_star():
                     self.ychi2 = ychi2
                     self.xchi2r = self.xchi2 / (self.epoch - 4.0)
                     self.ychi2r = self.ychi2 / (self.epoch - 4.0)
+                    self.modelPL = math.sqrt(jmod_xdiff**2 + jmod_ydiff**2)
+                    self.xres = self.x - (self.j_x0 + self.j_xv*(self.years - self.j_xt0) + 0.5*self.j_xa*(self.years - self.j_xt0)**2 + self.j_xj*(self.years - self.j_xt0)**3/6.0)
+                    self.yres = self.y - (self.j_y0 + self.j_yv*(self.years - self.j_yt0) + 0.5*self.j_ya*(self.years - self.j_yt0)**2 + self.j_yj*(self.years - self.j_yt0)**3/6.0)
+                    self.xres_sig = self.j_xres / self.xe
+                    self.yres_sig = self.j_yres / self.ye
 
         elif ( hasattr(self, 'a_xa')==False):
             print 'Need to run set_accel for '+self.name
         else:
-            print sname+' has less than 5 epochs, no jerk fit'
+            print self.name+' has less than 5 epochs, no jerk fit'
 
 
     
@@ -583,7 +631,7 @@ class one_star():
     
     '''
 class stars():
-    def __init__(self,root,poly,polyj=None,pval=4.0):
+    def __init__(self,root,poly,points,pointsj=None,polyj=None,pval=4.0):
         self.root = root
         self.poly = poly
 
@@ -656,7 +704,7 @@ class stars():
         #cycle through stars in database
         for i in range(len(v_x0)):
             tmpname = str(v_names[i])
-            tmpStar = one_star(tmpname,'/g/ghez/align/schappell_14_06_18/','points_nz/')
+            tmpStar = one_star(tmpname,self.root,points)
             #set velocity terms
             tmpStar.set_vel(v_xt0[i], v_yt0[i], v_x0[i], v_y0[i], v_x0e[i], v_y0e[i], v_xv[i], v_yv[i], v_xve[i], v_yve[i], v_xchi2[i], v_ychi2[i])
             for j in range(len(a_x0)):
@@ -677,16 +725,25 @@ class stars():
 
 
 
-    def sample_Like(self,in_GCfield=True, chainsDir='efit/chains_lessrv/', addErr=True,file='/u/schappell/Downloads/NIRC2 radial mask/nirc2_gcows_2010_all_mask.fits',savefile='/u/schappell/code/c/gcows_field.dat',magCut=15.5, Rcut=5.0,epochs=3,sigmaCut = 3.0, chiCut = 10.0,label=''):
+    def sample_Like(self,in_GCfield=True, chainsDir='efit/chains_lessrv/', addErr=True,file='/u/schappell/Downloads/NIRC2 radial mask/nirc2_gcows_2010_all_mask.fits',savefile='/u/schappell/code/c/gcows_field.dat',magCut=15.5, lmagCut=0.0, Rcut=5.0, accelRcut=2.5,epochs=3,sigmaCut = 3.0, chiCut = 7.0,label=''):
         #if param set, find which stars are in GCOWS footprint, and update errors
         if (in_GCfield == True):
             self.in_gcows(file=file, savefile=savefile)
         self.updateErr_all(chainsDir=chainsDir,addErr=addErr)
         
         samp_name = np.array([])
+        samp_epoch = np.array([])
         samp_mag = np.array([])
         samp_pOld = np.array([])
         samp_R = np.array([])
+        samp_x = np.array([])
+        samp_xe = np.array([])
+        samp_y = np.array([])
+        samp_ye = np.array([])
+        samp_xv = np.array([])
+        samp_yv = np.array([])
+        samp_xve = np.array([])
+        samp_yve = np.array([])
         samp_fit = np.array([])
         samp_ar = np.array([])
         samp_are = np.array([])
@@ -694,42 +751,57 @@ class stars():
         samp_ate = np.array([])
         samp_xchi2r = np.array([])
         samp_ychi2r = np.array([])
+        samp_xchi2r_a = np.array([])
+        samp_ychi2r_a = np.array([])
+        samp_modelPL = np.array([])
+        samp_xres = np.array([])
+        samp_yres = np.array([])
+        samp_xres_quad = np.array([])
+        samp_yres_quad = np.array([])
+        samp_t0 = np.array([])
         
         #begin tex file for output table
-        out = open('/u/schappell/tables/mn_sample_table.tex','w')
-        out.write('\\documentclass{aastex} \n')
+        out = open(tableRoot+'mn_accel_sample_table.tex','w')
+        #out.write('\\documentclass{aastex} \n')
         out.write('\\setlength{\\tabcolsep}{4pt} \n')
-        out.write('\\usepackage{graphicx,longtable,pdflscape,threeparttablex} \n')
-        out.write('\\usepackage[labelsep=space]{caption} \n')
-        out.write('\\begin{document} \n')
+        #out.write('\\usepackage{graphicx,longtable,pdflscape,threeparttablex} \n')
+        #out.write('\\usepackage[labelsep=space]{caption} \n')
+        #out.write('\\begin{document} \n')
         out.write('\\scriptsize \n')
-        out.write('\\begin{landscape} \n')
+        #out.write('\\begin{landscape} \n')
         out.write('\\begin{ThreePartTable} \n')
         out.write('\\begin{TableNotes} \n')
-        out.write('\\item [a] Number of epochs \n')
-        out.write('\\item [b] Probability of being late-type, reported in \\citet{do13l} \n')
-        out.write('\\item [c] Best kinematic fit, determined by F Tests \n')
+        out.write('\\item [a] Corrected for differential extinction to a mean extinction of 2.7 magnitudes \n')
+        out.write('\\item [b] Number of epochs \n')
+        #out.write('\\item [b] Only reported for stars with trusted measured accelerations, see section \\ref{sec:sample} \n')
+        out.write('\\item [c] Probability of being late-type, reported in \\citet{do13l} \n')
+        #out.write('\\item [d] Best kinematic fit, determined by F Tests \n')
         out.write('\\item [d] Average $\chi^2_r$ between $X$ and $Y$ direction for the best kinematic fit \n')
+        out.write("\\item [e] Radial acceleration at a star's given projected radius, assuming line-of-sight distance is zero, divided by the star's error in radial acceleration \n")
         out.write('\\end{TableNotes} \n')
-        out.write('\\begin{longtable}{*{15}{c}} \n')
-        out.write("\\tablecaption{Stars in Likelihood Analysis}\\label{tab:like_samp_data}\\\\ \n")
+        out.write('\\begin{longtable}{*{14}{c}} \n')
+        out.write("\\caption{Stars in Inner Sample}\\label{tab:like_accel_samp_data} \n")
+        #out.write('\\hline \n')
         out.write('\\hline \n')
-        out.write('\\hline \n')
-        out.write("Star & K' & X & Y & R$_{2D}$ & n\\tnote{a} & $v_x$ & $v_y$ & $a_r$ & $a_t$ & $j_x$ & $j_y$ & $p_{old}$\\tnote{b} & Fit\\tnote{c} & $\chi^2_r$\\tnote{d} \n")
-        out.write("&&    & \\multicolumn{3}{c}{(arcsec)} &   & \\multicolumn{2}{c}{(mas/yr)} & \\multicolumn{2}{c}{($\mu$as/yr$^2$)} & \\multicolumn{2}{c}{($\mu$as/yr$^3$)} &   &   &    \n")
-        out.write('\\\\ \n')
+        #out.write("Star & K' & R$_{2D}$ & n\\tnote{a} & T$_0$ & X & Y & $v_x$ & $v_y$ & $a_r$ & $a_t$ & $j_x$ & $j_y$ & $p_{old}$\\tnote{b} & Fit\\tnote{c} & $\chi^2_r$\\tnote{d} & $a_r(R,z=0)/\sigma_R}$\\tnote{e}  \\\\ \n")
+        #out.write("&    & (arcsec) &   & (yrs) & \\multicolumn{3}{c}{(arcsec)} & \\multicolumn{2}{c}{(mas/yr)} & \\multicolumn{2}{c}{($\mu$as/yr$^2$)} & \\multicolumn{2}{c}{($\mu$as/yr$^3$)} &   &   &    \\\\\ \n")
+        out.write("Star & K'\\tnote{a} & n\\tnote{b} & X & Y & R$_{2D}$ & t_0 & $v_x$ & $v_y$ & $a_r$ & $a_t$ & $p_{old}$\\tnote{c} & $\chi^2_r$\\tnote{d} & $a_{r,min}/\sigma_r$\\tnote{e} \n")
+        out.write(" & &  &   & \\multicolumn{3}{c}{(arcsec)} & (years) & \\multicolumn{2}{c}{($\mu$as/yr)} & \\multicolumn{2}{c}{($\mu$as/yr$^2$)} &   &   &   &    \n")
+        #out.write('\\\\ \n')
         out.write('\\hline \n')
         out.write('\\midrule\\endhead \n')
         out.write('\\bottomrule\\endfoot \n')
 
 #format for output data to table
-        fmt_wj = '%15s  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %2d  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.1f  %5s  %6.1f  %1s  %6.1f  %5s  %6.1f  %1s  %6.2f  %1s  %5s  %1s  %6.2f  %4s\n'
-        fmt_noj = '%15s  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %2d  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %5s  %1s  %5s  %1s  %6.2f  %1s  %5s  %1s  %6.2f  %4s\n'
+#fmt_wj = '%15s  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %2d  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.1f  %5s  %6.1f  %1s  %6.1f  %5s  %6.1f  %1s  %6.2f  %1s  %5s  %1s  %6.2f  %4s\n'
+#      fmt_noj = '%15s  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %2d  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %5s  %1s  %5s  %1s  %6.2f  %1s  %5s  %1s  %6.2f  %4s\n'
+        fmt_wa = '%15s  %1s  %5.1f  %1s  %2d  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %5s  %6.2f  %1s  %6.2f  %1s  %6.2f  %1s  %6.1f  %5s  %6d  %1s  %6.1f  %5s  %6d  %1s  %6.1f  %5s  %6d  %1s  %6.1f  %5s  %6d  %1s  %6.2f  %1s %6.1f  %1s  %6.2f  %4s\n'
+        fmt_noa =  '%15s  %1s  %5.1f  %1s  %2d  %1s  %6.1f  %5s  %6.1f  %1s  %6.1f  %5s  %6.1f  %1s  %6.1f  %1s  %6.2f  %1s  %6.1f  %5s  %6d  %1s  %6.1f  %5s  %6d  %1s  %5s  %1s  %5s  %1s  %6.2f  %1s %6.1f  %1s  %5s  %4s\n'
             
         for tmpStar in self.stars:
             if (hasattr(tmpStar,'a_ar') & hasattr(tmpStar,'pOld')):
-                if ((tmpStar.mag < magCut) & (tmpStar.R < Rcut) & (tmpStar.epoch > epochs) & (tmpStar.pOld > 0.0)):
-                    #cycle through stars, check that star has some acceleration term, is within mag, R, epochs, and pOld cuts
+                if ((tmpStar.mag < magCut) & (tmpStar.mag >= lmagCut) & (tmpStar.R < Rcut) & (tmpStar.epoch > epochs) & (tmpStar.pOld > 0.0)):
+                    #cycle through stars in inner sample
                     if (hasattr(tmpStar,'ar')):
                         tmp_ar = tmpStar.ar
                         tmp_are = tmpStar.are
@@ -742,7 +814,16 @@ class stars():
                         tmp_ate = tmpStar.a_ate
                     if (in_GCfield==True):
                         if (tmpStar.in_gcows==1):
+                            
+                            #for 5sig cut, be careful to only do this once and not to run it multiple times
+                            #sig5dex = np.where((tmpStar.xres_sig >= 5.0) | (tmpStar.yres_sig >= 5.0))[0]
+                            #if len(sig5dex) >= 1:
+                            #    use5dex = np.where((np.abs(tmpStar.xres_sig) < 5.0) & (np.abs(tmpStar.yres_sig) < 5.0))[0]
+                            #    np.savetxt('/g/ghez/align/schappell_14_06_18/points_5sig/'+str(tmpStar.name)+'.points',np.transpose([tmpStar.years[use5dex],tmpStar.x[use5dex],tmpStar.y[use5dex],tmpStar.xe[use5dex],tmpStar.ye[use5dex]]),delimiter=' ')
+                            
+                            
                             samp_name = np.append(samp_name,tmpStar.name)
+                            samp_epoch = np.append(samp_epoch,tmpStar.epoch)
                             samp_mag = np.append(samp_mag,tmpStar.mag)
                             samp_pOld = np.append(samp_pOld,tmpStar.pOld)
                             samp_R = np.append(samp_R,tmpStar.R)
@@ -759,35 +840,36 @@ class stars():
                             samp_ate = np.append(samp_ate,tmp_ate)
                             samp_xchi2r = np.append(samp_xchi2r,tmpStar.xchi2r)
                             samp_ychi2r = np.append(samp_ychi2r,tmpStar.ychi2r)
-                            #write to tex file row of desired info for each star
-                            if (hasattr(tmpStar,'j_xj')):
-                                #if has jerk term, output it to table
-                                out.write(fmt_wj % (tmpStar.name,'&',tmpStar.mag,'&',tmpStar.x0,'&',tmpStar.y0,'&',tmpStar.R,'&',tmpStar.epoch,'&',tmpStar.xv*1e3,'$\pm$',tmpStar.xve*1e3,'&',tmpStar.yv*1e3,'$\pm$',tmpStar.yve*1e3,'&',tmp_ar*1e6,'$\pm$',tmp_are*1e6,'&',tmp_at*1e6,'$\pm$',tmp_ate*1e6,'&',tmpStar.j_xj*1e6,'$\pm$',tmpStar.j_xje*1e6,'&',tmpStar.j_yj*1e6,'$\pm$',tmpStar.j_yje*1e6,'&',tmpStar.pOld,'&',tmpStar.fit,'&',(tmpStar.xchi2r+tmpStar.ychi2r)/2.0,'\\\\'))
-                            else:
-                                out.write(fmt_noj % (tmpStar.name,'&',tmpStar.mag,'&',tmpStar.x0,'&',tmpStar.y0,'&',tmpStar.R,'&',tmpStar.epoch,'&',tmpStar.xv*1e3,'$\pm$',tmpStar.xve*1e3,'&',tmpStar.yv*1e3,'$\pm$',tmpStar.yve*1e3,'&',tmp_ar*1e6,'$\pm$',tmp_are*1e6,'&',tmp_at*1e6,'$\pm$',tmp_ate*1e6,'&',' - ','&',' - ','&',tmpStar.pOld,'&',tmpStar.fit,'&',(tmpStar.xchi2r+tmpStar.ychi2r)/2.0,'\\\\'))
-                    else:
-                        #same thing as above, but without added requirement that stars be in GCOWS footprint
-                        samp_name = np.append(samp_name,tmpStar.name)
-                        samp_mag = np.append(samp_mag,tmpStar.mag)
-                        samp_pOld = np.append(samp_pOld,tmpStar.pOld)
-                        samp_R = np.append(samp_R,tmpStar.R)
-                        if (str(tmpStar.fit) == 'Vel'):
-                            samp_fit = np.append(samp_fit,1.0)
-                        elif (str(tmpStar.fit) == 'Acc'):
-                            samp_fit = np.append(samp_fit,2.0)
-                        elif (str(tmpStar.fit) == 'Jerk'):
-                            samp_fit = np.append(samp_fit,3.0)
-                        samp_ar = np.append(samp_ar,tmpStar.ar)
-                        samp_are = np.append(samp_are,tmpStar.are)
-                        samp_xchi2r = np.append(samp_xchi2r,tmpStar.xchi2r)
-                        samp_ychi2r = np.append(samp_ychi2r,tmpStar.ychi2r)
-                        if (hasattr(tmpStar,'j_xj')):
-                            out.write(fmt_wj % (tmpStar.name,'&',tmpStar.mag,'&',tmpStar.x0,'&',tmpStar.y0,'&',tmpStar.R,'&',tmpStar.epoch,'&',tmpStar.xv*1e3,'$\pm$',tmpStar.xve*1e3,'&',tmpStar.yv*1e3,'$\pm$',tmpStar.yve*1e3,'&',tmp_ar*1e6,'$\pm$',tmp_are*1e6,'&',tmp_at*1e6,'$\pm$',tmp_ate*1e6,'&',tmpStar.j_xj*1e6,'$\pm$',tmpStar.j_xje*1e6,'&',tmpStar.j_yj*1e6,'$\pm$',tmpStar.j_yje*1e6,'&',tmpStar.pOld,'&',tmpStar.fit,'&',(tmpStar.xchi2r+tmpStar.ychi2r)/2.0,'\\\\'))
-                        else:
-                            out.write(fmt_noj % (tmpStar.name,'&',tmpStar.mag,'&',tmpStar.x0,'&',tmpStar.y0,'&',tmpStar.R,'&',tmpStar.epoch,'&',tmpStar.xv*1e3,'$\pm$',tmpStar.xve*1e3,'&',tmpStar.yv*1e3,'$\pm$',tmpStar.yve*1e3,'&',tmp_ar*1e6,'$\pm$',tmp_are*1e6,'&',tmp_at*1e6,'$\pm$',tmp_ate*1e6,'&',' - ','&',' - ','&',tmpStar.pOld,'&',tmpStar.fit,'&',(tmpStar.xchi2r+tmpStar.ychi2r)/2.0,'\\\\'))
+                            samp_xv = np.append(samp_xv,tmpStar.xv)
+                            samp_yv = np.append(samp_yv,tmpStar.yv)
+                            samp_xe = np.append(samp_xe,tmpStar.x0e)
+                            samp_ye = np.append(samp_ye,tmpStar.y0e)
+                            samp_xve = np.append(samp_xve,tmpStar.xve)
+                            samp_yve = np.append(samp_yve,tmpStar.yve)
+                            samp_x = np.append(samp_x,tmpStar.x0)
+                            samp_y = np.append(samp_y,tmpStar.y0)
+                            samp_t0 = np.append(samp_t0,tmpStar.xt0)
+                            samp_modelPL = np.append(samp_modelPL,tmpStar.modelPL)
+                            samp_xres = np.append(samp_xres, tmpStar.xres_sig)
+                            samp_yres = np.append(samp_yres, tmpStar.yres_sig)
+                            samp_xres_quad = np.append(samp_xres_quad, math.sqrt(np.sum(tmpStar.xres_sig**2)))
+                            samp_yres_quad = np.append(samp_yres_quad, math.sqrt(np.sum(tmpStar.yres_sig**2)))
 
-        #selects stars with reduced chi^2 and unphysical accelerations with significance below set cuts
-        flagdex = np.where((samp_xchi2r < chiCut) & (samp_ychi2r < chiCut) & ((samp_ar/samp_are) < sigmaCut) & (np.abs(samp_at/samp_ate) < sigmaCut))[0]
+
+
+
+
+                            #write to tex file row of desired info for each star
+
+        samp_arz0 = GM_as_yr / samp_R**2
+        tmpsort = np.argsort(samp_R)#-samp_arz0/samp_are)
+        
+        for i in tmpsort:
+            if ((samp_epoch[i] > 27) & (samp_name[i] != 'S3-327') & (samp_name[i] != 'S5-53') & (samp_name[i] != 'S6-68') & (samp_name[i] != 'S6-61') & (samp_name[i] != 'S6-74') & (samp_name[i] != 'S6-53') & (samp_name[i] != 'S5-69') & (samp_name[i] != 'S3-136') & (samp_name[i] != 'S3-279') & (samp_name[i] != 'S3-125') & (samp_name[i] != 'S3-200') & (samp_name[i] != 'S3-15') & (samp_name[i] != 'S2-117') & (samp_name[i] != 'S1-45')):
+                out.write(fmt_wa % (samp_name[i],'&',samp_mag[i],'&',samp_epoch[i],'&',samp_x[i],'$\pm$',samp_xe[i],'&',samp_y[i],'$\pm$',samp_ye[i],'&',samp_R[i],'&',samp_t0[i],'&',samp_xv[i]*1e6,'$\pm$',samp_xve[i]*1e6,'&',samp_yv[i]*1e6,'$\pm$',samp_yve[i]*1e6,'&',samp_ar[i]*1e6,'$\pm$',samp_are[i]*1e6,'&',samp_at[i]*1e6,'$\pm$',samp_ate[i]*1e6,'&',samp_pOld[i],'&',(samp_xchi2r[i]+samp_ychi2r[i])/2.0,'&',samp_arz0[i]/samp_are[i],'\\\\'))
+            else:
+                out.write(fmt_noa % (samp_name[i],'&',samp_mag[i],'&',samp_epoch[i],'&',samp_x[i],'$\pm$',samp_xe[i],'&',samp_y[i],'$\pm$',samp_ye[i],'&',samp_R[i],'&',samp_t0[i],'&',samp_xv[i]*1e6,'$\pm$',samp_xve[i]*1e6,'&',samp_yv[i]*1e6,'$\pm$',samp_yve[i]*1e6,'&','-','&','-','&',samp_pOld[i],'&',(samp_xchi2r[i]+samp_ychi2r[i])/2.0,'&','-','\\\\'))
+
 
         out.write('\\hline \n')
         out.write('\\insertTableNotes \n')
@@ -797,31 +879,401 @@ class stars():
         out.write('\\end{document} \n')
         out.close()
         #close tex table file
+ 
+ 
+        #begin tex file for output table
+        #out = open(tableRoot+'mn_inner_sample_table.tex','w')
+        #out.write('\\begin{ThreePartTable} \n')
+        #out.write('\\begin{TableNotes} \n')
+        #out.write('\\item [a] Number of epochs \n')
+        #out.write('\\item [b] Probability of being late-type, reported in \\citet{do13l} \n')
+        #out.write('\\item [c] Best kinematic fit, determined by F Tests \n')
+        #out.write('\\item [d] Average $\chi^2_r$ between $X$ and $Y$ direction for the best kinematic fit \n')
+        #out.write('\\end{TableNotes} \n')
+        #out.write('\\begin{longtable}{*{13}{c}} \n')
+        #out.write("\\caption{Stars in Primary Sample}\\label{tab:like_samp_data} \n")
+        #out.write('\\hline \n')
+        #out.write("Star & K' & X & Y & R$_{2D}$ & n\\tnote{a} & $v_x$ & $v_y$ & $p_{old}$\\tnote{b} & Fit\\tnote{c} & $\chi^2_r$\\tnote{d} \n")
+        #out.write("&&    & \\multicolumn{3}{c}{(arcsec)} &   & \\multicolumn{2}{c}{($\mu$as/yr)} &   &   &    \n")
+        #out.write('\\hline \n')
+        #out.write('\\midrule\\endhead \n')
+        #out.write('\\bottomrule\\endfoot \n')
+        #fmt_noa = '%15s  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %5.1f  %1s  %2d  %1s  %6.1f  %5s  %6.1f  %1s  %6.1f  %5s  %6.1f  %1s  %6.2f  %1s  %5s  %1s  %6.2f  %4s\n'
+        #out.write(fmt_noa % (tmpStar.name,'&',tmpStar.mag,'&',tmpStar.x0,'&',tmpStar.y0,'&',tmpStar.R,'&',tmpStar.epoch,'&',tmpStar.xv*1e6,'$\pm$',tmpStar.xve*1e6,'&',tmpStar.yv*1e6,'$\pm$',tmpStar.yve*1e6,'&',tmpStar.pOld,'&',tmpStar.fit,'&',(tmpStar.xchi2r+tmpStar.ychi2r)/2.0,'\\\\'))
+
+        #out.write('\\hline \n')
+        #out.write('\\insertTableNotes \n')
+        #out.write('\\end{longtable} \n')
+        #out.write('\\end{ThreePartTable} \n')
+        #out.write('\\end{landscape} \n')
+        #out.write('\\end{document} \n')
+        #out.close()
+        #close tex table file
+        
+
+        #selects stars with reduced chi^2 and unphysical accelerations with significance below set cuts
+        #flagdex = np.where((samp_xchi2r < chiCut) & (samp_ychi2r < chiCut) & ((samp_ar/samp_are) < sigmaCut) & (np.abs(samp_at/samp_ate) < sigmaCut) & (samp_fit > 1.0))[0]
+        forAG = np.where((samp_xchi2r < chiCut) & (samp_ychi2r < chiCut) & ((samp_ar/samp_are) < sigmaCut) & (np.abs(samp_at/samp_ate) < sigmaCut))[0]
+        AG37 = np.where((samp_xchi2r < chiCut) & (samp_ychi2r < chiCut) & ((samp_ar/samp_are) < sigmaCut) & (np.abs(samp_at/samp_ate) < sigmaCut) & (samp_epoch > 37))[0]
+        nonphys = np.where(((samp_ar/samp_are) >= sigmaCut) | (np.abs(samp_at/samp_ate) >= sigmaCut))[0]
+        grt_chi2r = np.maximum(samp_xchi2r,samp_ychi2r)
+        resdex = np.where((samp_name == 'S3-327') | (samp_name == 'S5-53') | (samp_name == 'S6-68') | (samp_name == 'S6-61') | (samp_name == 'S6-74') | (samp_name == 'S6-53') | (samp_name == 'S5-69') | (samp_name == 'S3-136') | (samp_name == 'S3-279') | (samp_name == 'S3-125') | (samp_name == 'S3-200') | (samp_name == 'S3-15') | (samp_name == 'S2-117') | (samp_name == 'S1-45'))[0]
+        
+        flagdex = np.where((samp_epoch > 27) & (samp_name != 'S3-327') & (samp_name != 'S5-53') & (samp_name != 'S6-68') & (samp_name != 'S6-61') & (samp_name != 'S6-74') & (samp_name != 'S6-53') & (samp_name != 'S5-69') & (samp_name != 'S3-136') & (samp_name != 'S3-279') & (samp_name != 'S3-125') & (samp_name != 'S3-200') & (samp_name != 'S3-15') & (samp_name != 'S2-117') & (samp_name != 'S1-45'))[0] #samp_modelPL > 0.128)[0]
+        upLim = np.where((samp_ar + 3.0*samp_are) <= 0.0)[0]
+        #accel_names = np.array([samp_name[ii] for ii in flagdex])
+        
+        #percent accel sample by radius
+        perc_hist = np.zeros(5)
+        perc_bins = np.array([0.0,1.0,2.0,3.0,4.0,5.0])
+        for i in range(5):
+            tmpdex_acc = np.where((samp_R[flagdex] >= perc_bins[i]) & (samp_R[flagdex] < perc_bins[i+1]))[0]
+            tmpdex = np.where((samp_R >= perc_bins[i]) & (samp_R < perc_bins[i+1]))[0]
+            perc_hist[i] = float(len(tmpdex_acc))/len(tmpdex)
+
+        pdb.set_trace()
+        py.close()
+        py.bar([0.5,1.5,2.5,3.5,4.5],perc_hist,width=1.0)
+        py.xlabel('Radius (arcsec)')
+        py.ylabel('Percent in accel sample')
+        py.savefig(plotRoot+'perc_accel_samp_R_hist.png')
+        py.close()
+        
+        pass_ft = np.where(samp_fit > 1.0)[0]
+        py.clf()
+        py.plot(samp_R,samp_arz0/samp_are,'.',label='Inner Sample')
+        py.plot(samp_R[pass_ft],samp_arz0[pass_ft]/samp_are[pass_ft],'.',label='Pass F-Test')
+        py.xlabel('R$_{2D}$ (as)')
+        py.ylabel(r'|a$_R$(z=0)| / $\sigma_R$')
+        py.legend()
+        py.savefig(plotRoot+'arz0_are_R2d.png')
+        
+        py.clf()
+        py.errorbar(samp_at[flagdex]*1e6,samp_ar[flagdex]*1e6,xerr=samp_ate[flagdex]*1e6,yerr=samp_are[flagdex]*1e6,fmt='.')
+        py.xlabel(r'a$_T$ ($\mu$as/yr$^2$)')
+        py.ylabel(r'a$_R$ ($\mu$as/yr$^2$)')
+        py.savefig(plotRoot+'at_ar_sample.png')
+        py.clf()
+        py.Circle((0,0),3)
+        #py.plot(samp_at/samp_ate,samp_ar/samp_are,'.',label='Inner Sample')
+        py.plot(samp_at[flagdex]/samp_ate[flagdex],samp_ar[flagdex]/samp_are[flagdex],'o',label='Accel Sample')
+        py.xlabel(r'a$_T$ / $\sigma_T$')
+        py.ylabel(r'a$_R$ / $\sigma_R$')
+        #py.legend()
+        py.savefig(plotRoot+'at_ar_sigma.png')
+        py.clf()
+        py.hist(samp_ar[flagdex]*1e6,bins=10)
+        py.xlabel(r'a$_R$ ($\mu$as/yr$^2$)')
+        py.savefig(plotRoot+'ar_hist_sample.png')
+        py.clf()
+        py.hist(samp_at[flagdex]*1e6,bins=10)
+        py.xlabel(r'a$_T$ ($\mu$as/yr$^2$)')
+        py.savefig(plotRoot+'at_hist_sample.png')
+        py.clf()
+        py.errorbar(samp_R[flagdex],samp_ar[flagdex]*1e6,yerr=samp_are[flagdex]*1e6,fmt='.')
+        py.xlabel(r'R$_2D$ (as)')
+        py.ylabel(r'a$_R$ ($\mu$as/yr$^2$)')
+        py.savefig(plotRoot+'ar_R_samp.png')
+        py.clf()
+        py.errorbar(samp_R[flagdex],samp_at[flagdex]*1e6,yerr=samp_ate[flagdex]*1e6,fmt='.')
+        py.xlabel(r'R$_2D$ (as)')
+        py.ylabel(r'a$_T$ ($\mu$as/yr$^2$)')
+        py.savefig(plotRoot+'at_R_samp.png')
+        py.clf()
+        
+        rbins = np.arange(0.0,5.1,0.5)
+        rmid = np.zeros(len(rbins)-1)
+        ave_epoch = np.zeros(len(rbins)-1)
+        for i in range(len(rbins)-1):
+            rtdex = np.where((samp_R > rbins[i]) & (samp_R <= rbins[i+1]))[0]
+            ave_epoch[i] = np.average(samp_epoch[rtdex])
+            rmid[i] = (rbins[i] + rbins[i+1])/2.0
+                
+        py.clf()
+        py.plot(rmid,ave_epoch)
+        py.xlabel('R (as)')
+        py.ylabel('Average epoch')
+        py.savefig(plotRoot+'ave_epoch.png')
+        py.clf()
+        py.plot(samp_epoch,grt_chi2r,'.',label='Inner Sample')
+        py.plot(samp_epoch[nonphys],grt_chi2r[nonphys],'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel('Epochs')
+        py.ylabel(r'$\tilde{\chi}^2$') #largest chi^2 reduced between X and Y directions
+        py.savefig(plotRoot+'largest_chi2r_epoch_nonphys.png')
+        py.clf()
+        py.plot(samp_R,grt_chi2r,'.',label='Inner Sample')
+        py.plot(samp_R[nonphys],grt_chi2r[nonphys],'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel('R2d (as)')
+        py.ylabel(r'$\tilde{\chi}^2$') #largest chi^2 reduced between X and Y directions
+        py.savefig(plotRoot+'largest_chi2r_R_nonphys.png')
+        py.clf()
+        py.plot(samp_modelPL,grt_chi2r,'.',label='Inner Sample')
+        py.plot(samp_modelPL[nonphys],grt_chi2r[nonphys],'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel('Total Path Length (as)') #total path star covered across observations
+        py.ylabel(r'$\tilde{\chi}^2$') #largest chi^2 reduced between X and Y directions
+        py.savefig(plotRoot+'largest_chi2r_tot_pathlength_nonphys.png')
+        py.clf()
+        py.plot(samp_epoch,np.abs(samp_at/samp_ate),'.',label='Inner Sample')
+        py.plot(samp_epoch[resdex],np.abs(samp_at[resdex]/samp_ate[resdex]),'X', ms=10,label='Near Resolved Star')
+        py.plot(samp_epoch[nonphys],np.abs(samp_at[nonphys]/samp_ate[nonphys]),'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel('Epochs')
+        py.ylabel(r'$\sigma_T$')
+        py.savefig(plotRoot+'sigma_t_epoch_nonphys.png')
+        py.clf()
+        py.plot(grt_chi2r,np.abs(samp_at/samp_ate),'.',label='Inner Sample')
+        py.plot(grt_chi2r[nonphys],np.abs(samp_at[nonphys]/samp_ate[nonphys]),'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel(r'$\tilde{\chi}^2$') #largest chi^2 reduced between X and Y directions
+        py.ylabel(r'$\sigma_T$')
+        py.savefig(plotRoot+'sigma_t_largest_chi2r_nonphys.png')
+        py.clf()
+        py.plot(samp_mag,np.abs(samp_at/samp_ate),'.',label='Inner Sample')
+        py.plot(samp_mag[nonphys],np.abs(samp_at[nonphys]/samp_ate[nonphys]),'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel("K' (mag)")
+        py.ylabel(r'$\sigma_T$')
+        py.savefig(plotRoot+'sigma_t_kmag_nonphys.png')
+        py.clf()
+        py.plot(samp_modelPL,np.abs(samp_at/samp_ate),'.',label='Inner Sample')
+        py.plot(samp_modelPL[resdex],np.abs(samp_at[resdex]/samp_ate[resdex]),'X', ms=10,label='Near Resolved Star')
+        py.plot(samp_modelPL[nonphys],np.abs(samp_at[nonphys]/samp_ate[nonphys]),'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel('Total Path Length (as)') #total path star covered across observations
+        py.ylabel(r'$\sigma_T$')
+        py.savefig(plotRoot+'sigma_t_tot_pathlength_nonphys.png')
+        py.clf()
+        py.plot(samp_modelPL,samp_mag,'.',label='Inner Sample')
+        py.plot(samp_modelPL[nonphys],samp_mag[nonphys],'o',label='Sig Non-phys')
+        py.legend(numpoints=1)
+        py.xlabel('Total Path Length (as)') #total path star covered across observations
+        py.ylabel("K' (mag)")
+        py.savefig(plotRoot+'kmag_pathlength_nonphys.png')
+        py.clf()
+        hist,bins,junk = py.hist(samp_mag,bins=6,label='Entire Sample')
+        py.hist(samp_mag[flagdex],bins=bins,label='Accel Sample')
+        py.yscale('log')
+        py.legend()
+        py.xlabel("K'")
+        py.savefig(plotRoot+'KLF_accel_samplog.png')
+        py.clf()
+        hist,bins,junk = py.hist(samp_mag,bins=6,label='Entire Sample')
+        py.hist(samp_mag[flagdex],bins=bins,label='Accel Sample')
+        py.legend()
+        py.xlabel("K'")
+        py.savefig(plotRoot+'KLF_accel_samp.png')
+        py.clf()
+        posOnly = np.where(samp_modelPL <= 0.065)[0]
+        hist,bins,junk = py.hist(samp_R[posOnly],bins=6,label='Pos Sample')
+        py.hist(samp_R[flagdex],bins=bins,label='Accel Sample')
+        py.legend()
+        py.xlabel('Radius (arcsec)')
+        py.savefig(plotRoot+'radius_accel_samp.png')
+        py.clf()
+        hist,bins,junk = py.hist(samp_pOld,bins=20,label='Entire Sample')
+        py.hist(samp_pOld[flagdex],bins=bins,label='Accel Sample')
+        py.legend()
+        py.xlabel('Prob Late-Type')
+        py.savefig(plotRoot+'pOld_accel_samp.png')
+        py.clf()
+        hist,bins,junk = py.hist(np.sqrt(samp_xchi2r**2 + samp_ychi2r**2),bins=30,label='Entire Sample')
+        py.hist(np.sqrt(samp_xchi2r[flagdex]**2 + samp_ychi2r[flagdex]**2),bins=bins,label='Accel Sample')
+        py.legend()
+        py.xlabel(r'$\chi^2_{red}$')
+        py.savefig(plotRoot+'rchi2_accel_samp.png')
+        py.clf()
+        bins = np.arange(0.0,51.0,1.0)
+        hist,bins,junk = py.hist(samp_xchi2r,bins=bins,label='X',histtype='step')
+        py.hist(samp_ychi2r,bins=bins,label='Y',histtype='step')
+        py.plot([7,7],[0,61])
+        py.ylim([0,60])
+        py.legend()
+        py.xlabel(r'$\chi^2_{red}$')
+        py.savefig(plotRoot+'rchi2_XY_samp.png')
+        py.clf()
 
         #to cgs units
         samp_R *= dist * cm_in_au
+        #samp_pathLength *= dist * cm_in_au
         samp_ar *= asy_to_kms * 1e5 / sec_in_yr
         samp_are *= asy_to_kms * 1e5 / sec_in_yr
+            
+        sortRdex = np.argsort(samp_R)
+        ar_z0 = -GM / samp_R[sortRdex[flagdex]]**2 #radial acceleration at a given projected radius if r = R or line of sight distance, z = 0, in cm/s^2
+        ar_z0e = GMe / samp_R[sortRdex[flagdex]]**2 #error in radial acceleration at given r (assuming z=0), in cm/s^2
+        pdb.set_trace()
+        #py.clf()
+        #py.fill_between(samp_R[sortRdex]/1e17, ar_z0-ar_z0e,ar_z0+ar_z0e,color='gray')
+        #py.plot(samp_R[sortRdex]/1e17,ar_z0)
+        #py.errorbar(samp_R/1e17,samp_ar,yerr=samp_are,fmt='.',label='Entire Sample')
+        #py.errorbar(samp_R[forAG]/1e17,samp_ar[forAG],fmt='.',yerr=samp_are[forAG],label=r'Low $\chi^2$ + no unphysical accel')
+        #py.errorbar(samp_R[flagdex]/1e17,samp_ar[flagdex],fmt='o',yerr=samp_are[flagdex],label='Accel Sample')
+        #py.legend(numpoints=1)
+        #py.xlabel(r'Radius (10$^17$ cm)')
+        #py.ylabel('Radial acceleration (cm/s$^2$)')
+        #py.savefig(plotRoot+'ar_accel_samp.png')
+        py.clf()
+        py.fill_between(samp_R[sortRdex[flagdex]]/1e17, ar_z0-ar_z0e,ar_z0+ar_z0e,color='gray')
+        py.plot(samp_R[sortRdex[flagdex]]/1e17,ar_z0)
+        #py.errorbar(samp_R/1e17,samp_ar,yerr=samp_are,fmt='.',label='Entire Sample')
+        #tmpdex = np.where(samp_R <= 1.2e17)[0]
+            #for ii in tmpdex:
+            #py.annotate(samp_name[ii],(samp_R[ii]/1e17,samp_ar[ii]))
+        #py.errorbar(samp_R[AG37]/1e17,samp_ar[AG37],fmt='.',yerr=samp_are[AG37],label=r'Low $\chi^2$ + no unphysical accel + N$>$37')
+        py.errorbar(samp_R[flagdex]/1e17,samp_ar[flagdex],fmt='o',yerr=samp_are[flagdex],label='Accel Sample')
+        #py.plot(samp_R[resdex]/1e17,samp_ar[resdex],'X',ms=15,label='Near Resolved Star')
+#py.errorbar(samp_R[upLim]/1e17,(samp_ar[upLim]+3.0*samp_are[upLim]),yerr=0.003,fmt='.',uplims=True,label='Limits')
+#py.legend(numpoints=1,loc=4)
+        py.xlabel(r'Radius (10$^{17}$ cm)')
+        py.ylabel('Radial acceleration (cm/s$^2$)')
+        py.ylim([-0.04,0.02])
+        py.savefig(plotRoot+'ar_accel_samp_zoom.png')
+        py.clf()
+        py.errorbar(samp_epoch,samp_ar+GM/samp_R**2,yerr=samp_are,fmt='.',label='Entire Sample')
+        py.errorbar(samp_epoch[forAG],samp_ar[forAG]+GM / samp_R[forAG]**2,fmt='.',yerr=samp_are[forAG],label=r'Low $\chi^2$ + no unphysical accel')
+        py.errorbar(samp_epoch[flagdex],samp_ar[flagdex]+GM / samp_R[flagdex]**2,fmt='o',yerr=samp_are[flagdex],label='Accel Sample')
+        py.legend(numpoints=1)
+        py.xlabel(r'Epochs')
+        py.ylabel('Radial acceleration - $a_R$(z=0) (cm/s$^2$)')
+        py.ylim([-0.1,0.1])
+        py.savefig(plotRoot+'ar_accel-z0_epoch.png')
+        py.clf()
+        py.plot(samp_ar,samp_are,'.',label='Entire Sample')
+        py.plot(samp_ar[flagdex],samp_are[flagdex],'.',label='Accel Sample')
+        py.xlabel('Radial acceleration (cm/s$^2$)')
+        py.ylabel('Acceleration Error (cm/s$^2$)')
+        #py.xscale('log')
+        py.xlim([-0.05,0.05])
+        py.yscale('log')
+        py.legend()
+        py.savefig(plotRoot+'are_ar.png')
+        py.clf()
+        py.plot(samp_epoch,samp_pOld,'.',label='Entire Sample')
+        py.plot(samp_epoch[flagdex],samp_pOld[flagdex],'.',label='Accel Sample')
+        py.xlabel('Number of Epochs')
+        py.ylabel('Prob Late-Type')
+        py.legend()
+        py.savefig(plotRoot+'pOld_epoch.png')
+        py.clf()
+        py.plot(samp_R/(dist * cm_in_au),samp_pOld,'.',label='Entire Sample')
+        py.plot(samp_R[flagdex]/(dist * cm_in_au),samp_pOld[flagdex],'.',label='Accel Sample')
+        py.xlabel('R (arcsec)')
+        py.ylabel('Prob Late-Type')
+        py.legend()
+        py.savefig(plotRoot+'pOld_R.png')
+        py.clf()
+        py.plot(samp_R/cm_in_pc,samp_ar,'.')
+        py.xlabel('Path Lenth (pc)')
+        py.ylabel('Radial acceleration (cm/s$^2$)')
+        py.savefig(plotRoot+'ar_pathLength.png')
+        py.clf()
+        py.plot(samp_R/cm_in_pc,samp_at,'.')
+        py.xlabel('Path Lenth (pc)')
+        py.ylabel('Tangential acceleration (cm/s$^2$)')
+        py.savefig(plotRoot+'at_pathLength.png')
+        py.clf()
+        py.plot(samp_xchi2r,samp_ychi2r,'.',label='Entire Sample')
+        py.plot(samp_xchi2r[flagdex],samp_ychi2r[flagdex],'o',label='Accel Sample')
+        py.legend()
+        py.xscale('log')
+        py.yscale('log')
+        py.xlabel(r'Reduced $\chi^2_X$')
+        py.ylabel(r'Reduced $\chi^2_Y$')
+        py.savefig(plotRoot+'redChi2_x_y.png')
+        py.clf()
+        py.plot(samp_epoch,np.sqrt(samp_xchi2r**2 + samp_ychi2r**2),'.',label='Entire Sample')
+        py.plot(samp_epoch[forAG],np.sqrt(samp_xchi2r[forAG]**2 + samp_ychi2r[forAG]**2),'.',label=r'Low $\chi^2$ + no unphysical accel')
+        py.plot(samp_epoch[flagdex],np.sqrt(samp_xchi2r[flagdex]**2 + samp_ychi2r[flagdex]**2),'o',label='Accel Sample')
+        py.legend(numpoints=1)
+        py.xlabel(r'Epochs')
+        py.ylabel(r'$\chi^2_{red}$')
+        #py.ylim([-0.04,0.02])
+        py.savefig(plotRoot+'red_chi2_epoch.png')
+        py.clf()
+        py.plot(samp_epoch,samp_xchi2r,'.',label='X')
+        py.plot(samp_epoch,samp_ychi2r,'.',label=r'Y')
+        py.legend(numpoints=1)
+        py.xlabel(r'Epochs')
+        py.ylabel(r'$\chi^2_{red}$')
+        #py.ylim([-0.04,0.02])
+        py.savefig(plotRoot+'red_chi2_XY_epoch.png')
+        py.clf()
+        py.plot(samp_R/1e17,samp_epoch,'.',label='Entire Sample')
+        py.plot(samp_R[forAG]/1e17,samp_epoch[forAG],'.',label=r'Low $\chi^2$ + no unphysical accel')
+        py.plot(samp_R[flagdex]/1e17,samp_epoch[flagdex],'o',label='Accel Sample')
+        py.legend(numpoints=1,loc=4)
+        py.ylabel(r'Epochs')
+        py.xlabel(r'R ($10^{17}$ cm)')
+        #py.ylim([-0.04,0.02])
+        py.savefig(plotRoot+'epoch_R.png')
+        py.clf()
+        
         
         #for stars outside of chi^2 and unphysical acceleraiton cut, set their error to -1, C++ code will not use their accelerations as we do not trust them
         use_are = np.zeros(len(samp_are)) - 1.0
-        use_are[flagdex] = samp_are[flagdex]
+        use_are[flagdex] = np.sqrt(samp_are[flagdex]**2 + samp_at[flagdex]**2)
         
         #save stars in dat file
-        np.savetxt('/u/schappell/code/c/stars_mn'+label+'.dat',np.transpose([samp_R,samp_ar,use_are,samp_pOld]),delimiter=' ')
-    
-    
+        np.savetxt(cRoot+'stars_mn'+label+'.dat',np.transpose([samp_R,samp_ar,use_are,samp_pOld]),delimiter=' ')
+        np.savetxt(cRoot+'xy_as'+label+'.dat',np.transpose([samp_x,samp_y]),delimiter=' ')
+        for ii in flagdex:
+            scYoung.plotStar(samp_name[ii],accel_fit=True,poly='polyfit_5sig/fit',points='points_5sig/')
+            os.system('mv /u/schappell/plots/*'+str(samp_name[ii])+'*.png /u/schappell/plots/accelSamp')
+        
+        #imgFile='/u/ghezgroup/data/gc/09maylgs/combo/mag09maylgs_sgra_dim_kp.fits'
+        imgFile='/u/ghezgroup/data/gc/14maylgs2/combo/mag14maylgs2_kp.fits'
+        #sgra=[624.5,726.3]
+        sgra=[569.3,672.3]#obtained from starfinder/align/aligh_kp_0.8.sgra
+        scale = 0.00995
+        img = pyfits.getdata(imgFile)
+        imgsize = (img.shape)[0]
+        pixL = np.arange(0,imgsize)
+        xL = [-1*(xpos - sgra[0])*scale for xpos in pixL]
+        yL = [(ypos - sgra[1])*scale for ypos in pixL]
+        fig = py.figure(figsize=(8,8))
+        fig.subplots_adjust(left=0.1,right=0.95,top=0.95)
+        fig.clf()
+        ax = fig.add_subplot(111)
+        ax.imshow(np.log10(img+1), aspect='equal', interpolation='bicubic',
+                  extent=[max(xL), min(xL), min(yL), max(yL)],vmin=2.2,vmax=5,
+                  origin='lowerleft', cmap=py.cm.gray_r)
+        #tmpdex = np.where((samp_xchi2r < chiCut) & (samp_ychi2r < chiCut))[0]
+        #py.plot(samp_x[tmpdex],samp_y[tmpdex],'gs',ms=10,label=r'$\chi^2 < 10$')
+        #tmpdex = np.where(np.abs(samp_at/samp_ate) < sigmaCut)[0]
+        #py.plot(samp_x[tmpdex],samp_y[tmpdex],'rX',ms=9,label=r'|$\sigma_T$| $< $'+str(sigmaCut))
+        #tmpdex = np.where((samp_ar/samp_are) < sigmaCut)[0]
+        #py.plot(samp_x[tmpdex],samp_y[tmpdex],'bP',ms=8,label=r'$\sigma_R < +$'+str(sigmaCut))
+        #py.plot(samp_x,samp_y,'k.',ms=7)
+        #tmpdex = np.where(samp_fit > 1.0)[0]
+        #py.plot(samp_x[tmpdex],samp_y[tmpdex],'y.',ms=7,label='Pass F Test')
+        tmpdex = np.where((samp_xchi2r < chiCut) & (samp_ychi2r < chiCut) & (np.abs(samp_at/samp_ate) < sigmaCut) & ((samp_ar/samp_are) < sigmaCut) & (samp_epoch > 37))[0]
+        py.plot(samp_x[flagdex],samp_y[flagdex],'.')
+        #py.legend(numpoints=1)
+        py.xlim([-5.5,5.5])
+        py.ylim([-6,4])
+        py.xlabel('RA (arcsec)')
+        py.ylabel('DEC (arcsec)')
+        py.savefig(plotRoot+'accel_samp_xy.png')
+        py.clf()
+
+
+
     
     def schodel_samp(self,label='',innerCut=5.0,outerCut=15.0,magCut=17.75,lmagCut=0.0):
         R2d = np.array([])
         mag = np.array([])
         oldProb = np.array([])
+        x = np.array([])
+        y = np.array([])
         
         #to correct for extinction, calculate pixel location on fits file of dust for each star
         ext_scale = 0.02705 #arcsec/pixel
         ext_center = [808,611]
         extMap = pyfits.getdata('/u/schappell/Downloads/AKs_fg6.fits')
-        database = mysql.connector.connect(host="*********",user="**********",passwd="*******",db="*******")
+        database = mysql.connector.connect(host="galaxy1.astro.ucla.edu",user="dbread",passwd="t36fCEtw",db="gcg")
         cur = database.cursor()
         cur.execute('SELECT r2d,k,x,y FROM schoedel2010')
         for row in cur:
@@ -837,12 +1289,15 @@ class stars():
                     oldProb = np.append(oldProb,1.0)
                     R2d = np.append(R2d,row[0])
                     mag = np.append(mag,row[1] + 2.7 - extMap[Xext,Yext])
+                    x = np.append(x,row[2])
+                    y = np.append(y,row[3])
 
         #radius and mag cuts
         mdex = np.where((R2d > innerCut) & (R2d < outerCut) & (mag < magCut) & (mag > lmagCut))[0]
+        pdb.set_trace()
         #into cgs units and save to file
         R2d *= dist * cm_in_au
-        np.savetxt('/u/schappell/code/c/maser_mn'+label+'.dat',np.transpose([R2d[mdex],oldProb[mdex]]),delimiter=' ')
+        np.savetxt(cRoot+'maser_mn'+label+'.dat',np.transpose([R2d[mdex],oldProb[mdex],x[mdex],y[mdex]]),delimiter=' ')
 
 
 
@@ -851,10 +1306,10 @@ class stars():
         outerCut *= dist / au_in_pc
         innerCut *= dist / au_in_pc
         Rcut *= dist / au_in_pc
-        mnRoot = '/u/schappell/pmnOld/data'+label_out+'_'
+        mnRoot = mnoutRoot+'data'+label_out+'_'
         
         #compile and run
-        os.system('g++ sc_mn_FINAL.cpp gauss_legendre.c -o sc_mn -std=c++11 -lpthread -I/u/schappell/code/c -I/u/schappell/code/c/boost/config -L/u/schappell/multinest/MultiNest/lib -lmultinest')
+        os.system('g++ sc_mn_FINAL.cpp gauss_legendre.c -o sc_mn -std=c++11 -lpthread -I'+cRoot+' -I/u/schappell/code/c/boost/config -L'+homeRoot+'multinest/MultiNest/lib -lmultinest')
         outCommand = './sc_mn '+mnRoot+' '+str(mnAlpha)+' '+str(mnDelta)+' '+str(mnBreak)+' '+str(max_r)+' '+str(Rcut)
         outCommand += ' '+str(situation)+' '+str(innerCut)+' '+str(outerCut)+' '+str(nonRadial)+' '+label_in
         os.system(outCommand)
@@ -914,6 +1369,7 @@ class stars():
             fit_mag = np.array([])
             fit_at = np.array([])
             fit_ate = np.array([])
+            fit_are = np.array([])
             #cycle through stars, get magnitude and acceleration info
             for tmpStar in self.stars:
                 if (hasattr(tmpStar,'a_at') & (hasattr(tmpStar,'mag'))):
@@ -922,9 +1378,11 @@ class stars():
                         if (tmpStar.fit == 'Jerk'):
                             fit_at = np.append(fit_at, tmpStar.at)
                             fit_ate = np.append(fit_ate, tmpStar.ate)
+                            fit_are = np.append(fit_are, tmpStar.are)
                         else:
                             fit_at = np.append(fit_at, tmpStar.a_at)
                             fit_ate = np.append(fit_ate, tmpStar.a_ate)
+                            fit_are = np.append(fit_are, tmpStar.a_are)
             #call deltaError function to break stars into magnitude bins and fit empirical error for each bin
             deltaArr, atBins = deltaError(fit_mag,fit_at,fit_ate)
             #add array of empirical additive errors as attribute
@@ -932,19 +1390,25 @@ class stars():
             #ass limits of magnitude bins as attribute
             self.addMag = atBins
 
+            ave_are = np.zeros(len(atBins)-1)
+            for i in range(len(atBins)-1):
+                tmpdex = np.where((fit_mag > atBins[i]) & (fit_mag <= atBins[i+1]))[0]
+                ave_are[i] = np.median(fit_are[tmpdex])
             py.clf()
             mid_point = np.array([(atBins[ii]+atBins[ii+1])/2.0 for ii in range(len(deltaArr))])
-            py.plot(mid_point,deltaArr*1e6,'o')
+            py.plot(mid_point,deltaArr*1e6,'o',label='Additive Error')
+            py.plot(mid_point,ave_are*1e6,'o',label='Median $\sigma_{a,R}$')
+            py.legend(numpoints=1)
             py.xlabel("Magnitude (K')")
-            py.ylabel('Additive Error ($\mu$as/yr$^2$)')
-            py.savefig('/u/schappell/plots/additive_error_magnitude.png')
+            py.ylabel('Error ($\mu$as/yr$^2$)')
+            py.savefig(plotRoot+'additive_error_magnitude.png')
             #plot additive error for every magnitude bin
             py.clf()
             py.figure()
             py.axes([0.08,0.1,0.38,0.82])
-            py.hist(fit_at/fit_ate,bins=200)
-            py.xlim([-15,15])
-            py.ylim([0,85])
+            hist,bins,junk=py.hist(fit_at/fit_ate,bins=400)
+            py.xlim([-10,10])
+            py.ylim([0,220])
             py.xlabel('$\sigma_T$')
             py.title('Before')
             #plot before and after of distribution of significance of tangential acceleration (acceleration / error)
@@ -955,12 +1419,12 @@ class stars():
                         fit_ate[i] = math.sqrt(fit_ate[i]**2 + deltaArr[j]**2)
 
             py.axes([0.56,0.1,0.38,0.82])
-            py.hist(fit_at/fit_ate,bins=200)
-            py.xlim([-15,15])
-            py.ylim([0,85])
+            py.hist(fit_at/fit_ate,bins=bins)
+            py.xlim([-10,10])
+            py.ylim([0,220])
             py.xlabel('$\sigma_T$')
             py.title('After')
-            py.savefig('/u/schappell/plots/before_after_error_at.png')
+            py.savefig(plotRoot+'before_after_error_at.png')
             py.clf()
 
             for tmpStar in self.stars:
@@ -1024,24 +1488,24 @@ class stars():
         py.colorbar()
         py.ylabel('Velocity (km/s)')
         py.xlabel(r'R$_{2D}$ (arcsec)')
-        py.savefig('/u/schappell/plots/yng_V_R.png')
+        py.savefig(plotRoot+'yng_V_R.png')
         py.clf()
         py.errorbar(plot_R[yngdex],plot_V[yngdex],yerr=plot_Verr[yngdex],fmt='.')
         py.ylabel('Velocity (km/s)')
         py.xlabel(r'R$_{2D}$ (arcsec)')
-        py.savefig('/u/schappell/plots/yng_V_R_SCATTER.png')
+        py.savefig(plotRoot+'yng_V_R_SCATTER.png')
         py.clf()
         olddex = np.where(plot_old == 1.0)[0]
         py.hist2d(plot_R[olddex],plot_V[olddex],bins=4)
         py.colorbar()
         py.ylabel('Velocity (km/s)')
         py.xlabel(r'R$_{2D}$ (arcsec)')
-        py.savefig('/u/schappell/plots/old_V_R.png')
+        py.savefig(plotRoot+'old_V_R.png')
         py.clf()
         py.errorbar(plot_R[olddex],plot_V[olddex],yerr=plot_Verr[olddex],fmt='.')
         py.ylabel('Velocity (km/s)')
         py.xlabel(r'R$_{2D}$ (arcsec)')
-        py.savefig('/u/schappell/plots/old_V_R_SCATTER.png')
+        py.savefig(plotRoot+'old_V_R_SCATTER.png')
         py.clf()
         print 'Total number of stars in yng: '+str(len(yngdex))+' and old: '+str(len(olddex))
 
@@ -1080,13 +1544,13 @@ class stars():
         py.xlabel(r'$\chi_{reduced}^2$')
         py.ylabel('Number of Stars')
         py.title(r'X $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/x_chi2r_hist.png')
+        py.savefig(plotRoot+'x_chi2r_hist.png')
         py.clf()
         py.hist(pl_ychi2r[usedex],bins=100)
         py.xlabel(r'$\chi_{reduced}^2$')
         py.ylabel('Number of Stars')
         py.title(r'Y $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/y_chi2r_hist.png')
+        py.savefig(plotRoot+'y_chi2r_hist.png')
         py.clf()
         veldex = np.where(pl_fit==1)[0]
         accdex = np.where(pl_fit==2)[0]
@@ -1102,7 +1566,7 @@ class stars():
         py.legend()
         py.xlabel('R (arcsec)')
         py.ylabel(r'X $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/xchi2r_R_wfit.png')
+        py.savefig(plotRoot+'xchi2r_R_wfit.png')
         py.clf()
         py.plot(pl_r2d[veldex],pl_ychi2r[veldex],'k.',label='Vel')
         py.plot(pl_r2d[accdex],pl_ychi2r[accdex],'b.',label='Accel')
@@ -1111,7 +1575,7 @@ class stars():
         py.legend()
         py.xlabel('R (arcsec)')
         py.ylabel(r'Y $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/ychi2r_R_wfit.png')
+        py.savefig(plotRoot+'ychi2r_R_wfit.png')
         py.clf()
         py.plot(pl_mag[veldex],pl_xchi2r[veldex],'k.',label='Vel')
         py.plot(pl_mag[accdex],pl_xchi2r[accdex],'b.',label='Accel')
@@ -1120,7 +1584,7 @@ class stars():
         py.legend()
         py.xlabel("K' (mag)")
         py.ylabel(r'X $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/xchi2r_mag_wfit.png')
+        py.savefig(plotRoot+'xchi2r_mag_wfit.png')
         py.clf()
         py.plot(pl_mag[veldex],pl_ychi2r[veldex],'k.',label='Vel')
         py.plot(pl_mag[accdex],pl_ychi2r[accdex],'b.',label='Accel')
@@ -1129,7 +1593,7 @@ class stars():
         py.legend()
         py.xlabel("K' (mag)")
         py.ylabel(r'Y $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/ychi2r_mag_wfit.png')
+        py.savefig(plotRoot+'ychi2r_mag_wfit.png')
         py.clf()
         py.plot(pl_epoch[veldex],pl_xchi2r[veldex],'k.',label='Vel')
         py.plot(pl_epoch[accdex],pl_xchi2r[accdex],'b.',label='Accel')
@@ -1138,7 +1602,7 @@ class stars():
         py.legend()
         py.xlabel('Epoch')
         py.ylabel(r'X $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/xchi2r_epoch_wfit.png')
+        py.savefig(plotRoot+'xchi2r_epoch_wfit.png')
         py.clf()
         py.plot(pl_epoch[veldex],pl_ychi2r[veldex],'k.',label='Vel')
         py.plot(pl_epoch[accdex],pl_ychi2r[accdex],'b.',label='Accel')
@@ -1147,7 +1611,7 @@ class stars():
         py.legend()
         py.xlabel('Epoch')
         py.ylabel(r'Y $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/ychi2r_epoch_wfit.png')
+        py.savefig(plotRoot+'ychi2r_epoch_wfit.png')
         py.clf()
 
         #consider constrained sample with mag < 15.5 (K'), R < 5arcsec, and non-zero prob of being late-type
@@ -1156,18 +1620,18 @@ class stars():
         py.xlabel(r'$\chi_{reduced}^2$')
         py.ylabel('Number of Stars')
         py.title(r'X $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/x_chi2r_hist_constrain.png')
+        py.savefig(plotRoot+'x_chi2r_hist_constrain.png')
         py.clf()
         py.hist(pl_ychi2r[usedex],bins=100)
         py.xlabel(r'$\chi_{reduced}^2$')
         py.ylabel('Number of Stars')
         py.title(r'Y $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/y_chi2r_hist_constrain.png')
+        py.savefig(plotRoot+'y_chi2r_hist_constrain.png')
         py.clf()
         py.plot(pl_xchi2r[usedex],pl_ychi2r[usedex],'.')
         py.xlabel(r'X $\chi_{reduced}^2$')
         py.ylabel(r'Y $\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/X_vs_Ychi.png')
+        py.savefig(plotRoot+'X_vs_Ychi.png')
         py.clf()
 
         #plot constrained sample as a function of number of epochs detected, with best fit shown with color
@@ -1180,8 +1644,9 @@ class stars():
         py.legend()
         py.xlabel('Epochs')
         py.ylabel(r'$\chi_{reduced}^2$')
-        py.savefig('/u/schappell/plots/epoch_aveChi.png')
+        py.savefig(plotRoot+'epoch_aveChi.png')
         py.clf()
+        py.close('all')
 
 
 
@@ -1250,4 +1715,344 @@ def findAdd(addError,*needed):
     
     #return residual
     return value
+
+
+
+
+#Compare two aligns by examining their errors in velocity and acceleration
+def compareAlign(alignA='/g/ghez/align/siyao_18_01_12_OldHolo_18FebAbs_allEpoch/allEpoch/',polyA='polyfit_4_trim/',pointsA='points_4_trim/',labelA='Old Holo',alignB='/g/ghez/align/18_02_07_newSpeckle/',polyB='polyfit_4_trim/',pointsB='points_4_trim/',labelB='New Holo',radiusCut=2.0,l_radiusCut=0.4,magCut=16.0):
+    starsA = stars(alignA,polyA,pointsA)
+    starsB = stars(alignB,polyB,pointsB)
+    #fetch the info from the two aligns and their specificied polyfits
+
+    #cycle through stars, both in A and B aligns and find which ones are within the mag and the radii cut
+    #and which stars are in both aligns
+    epochA = np.array([])
+    epochB = np.array([])
+    magA = np.array([])
+    x_A = np.array([])
+    y_A = np.array([])
+    vxe_A = np.array([])
+    vye_A = np.array([])
+    axe_A = np.array([])
+    aye_A = np.array([])
+    vx_A = np.array([])
+    vy_A = np.array([])
+    ax_A = np.array([])
+    ay_A = np.array([])
+    vxe_B = np.array([])
+    vye_B = np.array([])
+    axe_B = np.array([])
+    aye_B = np.array([])
+    vx_B = np.array([])
+    vy_B = np.array([])
+    ax_B = np.array([])
+    ay_B = np.array([])
+    for tmpStarA in starsA.stars:
+        if (hasattr(tmpStarA, 'mag')):
+            if ((tmpStarA.mag < magCut) & (tmpStarA.a_R < radiusCut) & (tmpStarA.a_R > l_radiusCut)):
+                for tmpStarB in starsB.stars:
+                    if (tmpStarA.name == tmpStarB.name):
+                        epochA = np.append(epochA,tmpStarA.epoch)
+                        epochB = np.append(epochB,tmpStarB.epoch)
+                        magA = np.append(magA, tmpStarA.mag)
+                        x_A = np.append(x_A, tmpStarA.a_x0)
+                        y_A = np.append(y_A, tmpStarA.a_y0)
+                        vxe_A = np.append(vxe_A, tmpStarA.a_xve)
+                        vye_A = np.append(vye_A, tmpStarA.a_yve)
+                        axe_A = np.append(axe_A, tmpStarA.a_xae)
+                        aye_A = np.append(aye_A, tmpStarA.a_yae)
+                        vxe_B = np.append(vxe_B, tmpStarB.a_xve)
+                        vye_B = np.append(vye_B, tmpStarB.a_yve)
+                        axe_B = np.append(axe_B, tmpStarB.a_xae)
+                        aye_B = np.append(aye_B, tmpStarB.a_yae)
+
+                        vx_A = np.append(vx_A, tmpStarA.a_xv)
+                        vy_A = np.append(vy_A, tmpStarA.a_yv)
+                        ax_A = np.append(ax_A, tmpStarA.a_xa)
+                        ay_A = np.append(ay_A, tmpStarA.a_ya)
+                        vx_B = np.append(vx_B, tmpStarB.a_xv)
+                        vy_B = np.append(vy_B, tmpStarB.a_yv)
+                        ax_B = np.append(ax_B, tmpStarB.a_xa)
+                        ay_B = np.append(ay_B, tmpStarB.a_ya)
+
+
+    #calculate difference between errors, ratio of the two, and the two added in quadrature
+    vxe_ratio = vxe_A/vxe_B
+    vxe_diff = vxe_A - vxe_B
+    vxe_quad = np.sqrt(vxe_A**2 + vxe_B**2)
+    vye_ratio = vye_A/vye_B
+    vye_diff = vye_A - vye_B
+    vye_quad = np.sqrt(vye_A**2 + vye_B**2)
+    axe_ratio = axe_A/axe_B
+    axe_diff = axe_A - axe_B
+    axe_quad = np.sqrt(axe_A**2 + axe_B**2)
+    aye_ratio = aye_A/aye_B
+    aye_diff = aye_A - aye_B
+    aye_quad = np.sqrt(aye_A**2 + aye_B**2)
+
+    vx_diff = vx_A - vx_B
+    vy_diff = vy_A - vy_B
+    ax_diff = ax_A - ax_B
+    ay_diff = ay_A - ay_B
+
+    #Let's make some plots!
+    py.clf()
+    # Error ratio plots
+    py.plot(epochA,vxe_ratio,'.',label='X')
+    py.plot(epochA,vye_ratio,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Epoch ('+labelA+')')
+    py.ylabel('Vel Error Ratio ('+labelA+' / '+labelB+')')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_veRatio_epoch.png')
+    py.clf()
+    py.plot(epochA,axe_ratio,'.',label='X')
+    py.plot(epochA,aye_ratio,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Epoch ('+labelA+')')
+    py.ylabel('Accel Error Ratio ('+labelA+' / '+labelB+')')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aeRatio_epoch.png')
+    py.clf()
+    py.plot(magA,vxe_ratio,'.',label='X')
+    py.plot(magA,vye_ratio,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Mag')
+    py.ylabel('Vel Error Ratio ('+labelA+' / '+labelB+')')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_veRatio_mag.png')
+    py.clf()
+    py.plot(magA,axe_ratio,'.',label='X')
+    py.plot(magA,aye_ratio,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Mag')
+    py.ylabel('Accel Error Ratio ('+labelA+' / '+labelB+')')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aeRatio_mag.png')
+    py.clf()
+
+    # Error diff plots, divided by quad averaged
+    py.plot(epochA,vxe_diff/vxe_quad,'.',label='X')
+    py.plot(epochA,vye_diff/vye_quad,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Epoch ('+labelA+')')
+    py.ylabel(r'Vel Error Delta ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2$ + '+labelB+'$^2$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_veDiff_epoch.png')
+    py.clf()
+    py.plot(epochA,axe_diff/axe_quad,'.',label='X')
+    py.plot(epochA,aye_diff/aye_quad,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Epoch ('+labelA+')')
+    py.ylabel('Accel Error Delta ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2$ + '+labelB+'$^2$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aeDiff_epoch.png')
+    py.clf()
+    py.plot(magA,vxe_diff/vxe_quad,'.',label='X')
+    py.plot(magA,vye_diff/vye_quad,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Mag')
+    py.ylabel('Vel Error Delta ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2$ + '+labelB+'$^2$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_veDiff_mag.png')
+    py.clf()
+    py.plot(magA,axe_diff/axe_quad,'.',label='X')
+    py.plot(magA,aye_diff/aye_quad,'.',label='Y')
+    py.legend(numpoints=1)
+    py.xlabel('Mag')
+    py.ylabel('Accel Error Delta ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2$ + '+labelB+'$^2$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aeDiff_mag.png')
+    py.clf()
+    
+    # Plots of difference between velocity and acceleration values
+    py.figure(figsize=(8,5))
+    py.errorbar(epochA,vx_diff*1e3,yerr=vxe_quad*1e3,fmt='.',label='X')
+    py.errorbar(epochA,vy_diff*1e3,yerr=vye_quad*1e3,fmt='.',label='Y')
+    #py.scatter(epochA,vx_diff*1e3,c=magA,cmap='Oranges',s=15)
+    #py.scatter(epochA,vy_diff*1e3,c=magA,cmap='Blues',s=15,marker='^')
+    py.legend(numpoints=1)
+    #py.yscale('log')
+    py.ylim([-0.2,0.2])
+    py.xlabel('Epoch ('+labelA+')')
+    py.ylabel(r'Vel '+labelA+' - '+labelB+' (mas/yr)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_vDiff_epoch.png')
+    py.clf()
+    py.figure(figsize=(8,5))
+    py.errorbar(epochA,ax_diff*1e3,yerr=axe_quad*1e3,fmt='.',label='X')
+    py.errorbar(epochA,ay_diff*1e3,yerr=aye_quad*1e3,fmt='.',label='Y')
+    #py.scatter(epochA,ax_diff*1e3,c=magA,cmap='Oranges',s=15,label='X')
+    #py.scatter(epochA,ay_diff*1e3,c=magA,cmap='Blues',marker='^',s=15,label='Y')
+    py.legend(numpoints=1)
+    #py.yscale('log')
+    py.ylim([-0.1,0.1])
+    py.xlabel('Epoch ('+labelA+')')
+    py.ylabel('Accel '+labelA+' - '+labelB+' (mas/yr$^2$)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aDiff_epoch.png')
+    py.clf()
+    py.figure(figsize=(8,5))
+    py.errorbar(magA,vx_diff*1e3,yerr=vxe_quad*1e3,fmt='.',label='X')
+    py.errorbar(magA,vy_diff*1e3,yerr=vye_quad*1e3,fmt='.',label='Y')
+    #py.scatter(magA,vx_diff*1e3,c=epochA,cmap='Oranges',s=15,label='X')
+    #py.scatter(magA,vy_diff*1e3,c=epochA,cmap='Blues',marker='^',s=15,label='Y')
+    py.legend(numpoints=1)
+    #py.yscale('log')
+    py.ylim([-0.2,0.2])
+    py.xlabel('Mag')
+    py.ylabel('Vel '+labelA+' - '+labelB+' (mas/yr)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_vDiff_mag.png')
+    py.clf()
+    py.figure(figsize=(8,5))
+    py.errorbar(magA,ax_diff*1e3,yerr=axe_quad*1e3,fmt='.',label='X')
+    py.errorbar(magA,ay_diff*1e3,yerr=aye_quad*1e3,fmt='.'
+                
+                ,label='Y')
+    #py.scatter(magA,ax_diff*1e3,c=epochA,cmap='Oranges',s=15,label='X')
+    #py.scatter(magA,ay_diff*1e3,c=epochA,cmap='Blues',marker='^',s=15,label='Y')
+    py.legend(numpoints=1)
+    #py.yscale('log')
+    py.ylim([-0.1,0.1])
+    py.xlabel('Mag')
+    py.ylabel('Accel '+labelA+' - '+labelB+' (mas/yr$^2$)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aDiff_mag.png')
+    py.clf()
+
+    bins = np.arange(-20.0,20.0,0.5)
+    py.hist(vxe_diff/vxe_quad,bins=bins,histtype='step',label='X')
+    py.hist(vye_diff/vye_quad,bins=bins,histtype='step',label='Y')
+    py.legend()
+    py.xlabel('Vel Error Delta ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2$ + '+labelB+'$^2$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_veDiff_hist.png')
+    py.clf()
+    py.hist(axe_diff/axe_quad,bins=bins,histtype='step',label='X')
+    py.hist(aye_diff/aye_quad,bins=bins,histtype='step',label='Y')
+    py.legend()
+    py.xlabel('Accel Error Delta ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2$ + '+labelB+'$^2$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aeDiff_hist.png')
+    
+    py.clf()
+    bins = np.arange(-5,5,0.1)
+    py.hist(vx_diff/vxe_quad,bins=bins,histtype='step',label='X')
+    py.hist(vy_diff/vye_quad,bins=bins,histtype='step',label='Y')
+    py.legend()
+    py.xlabel('Vel ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2_e$ + '+labelB+'$^2_e$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_vDiff_hist.png')
+    bins = np.arange(-5,5,0.2)
+    py.clf()
+    py.hist(ax_diff/axe_quad,bins=bins,histtype='step',label='X')
+    py.hist(ay_diff/aye_quad,bins=bins,histtype='step',label='Y')
+    py.legend()
+    py.xlabel('Accel ( ('+labelA+' - '+labelB+') / ('+labelA+'$^2_e$ + '+labelB+'$^2_e$)$^{1/2}$ )')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_aDiff_hist.png')
+    py.clf()
+
+    py.plot([20,55],[20,55],'k')
+    py.plot(epochB,epochA,'.')
+    py.xlabel('Epoch ('+labelB+')')
+    py.ylabel('Epoch ('+labelA+')')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_epoch.png')
+    py.clf()
+    py.plot([5e-6,1e-2],[5e-6,1e-2],'k')
+    py.plot(vxe_B,vxe_A,'.',label='X')
+    py.plot(vye_B,vye_A,'.',label='Y')
+    py.legend()
+    py.xscale('log')
+    py.yscale('log')
+    py.xlabel('Vel Error '+labelB+' (as/yr)')
+    py.ylabel('Vel Error '+labelA+' (as/yr)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_vel_error.png')
+    py.clf()
+    py.plot([1.5e-6,4e-3],[1.5e-6,4e-3],'k')
+    py.plot(axe_B,axe_A,'.',label='X')
+    py.plot(aye_B,aye_A,'.',label='Y')
+    py.legend()
+    py.xscale('log')
+    py.yscale('log')
+    py.xlabel('Accel Error '+labelB+' (as/yr$^2$)')
+    py.ylabel('Accel Error '+labelA+' (as/yr$^2$)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_accel_error.png')
+    py.clf()
+
+    py.errorbar(vx_B,vx_A,xerr=vxe_B,yerr=vxe_A,fmt='.',label='X')
+    py.errorbar(vy_B,vy_A,xerr=vye_B,yerr=vye_A,fmt='.',label='Y')
+    py.legend()
+    py.xscale('log')
+    py.yscale('log')
+    py.xlabel('Vel '+labelB+' (as/yr)')
+    py.ylabel('Vel '+labelA+' (as/yr)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_vel.png')
+    py.clf()
+    py.errorbar(ax_B,ax_A,xerr=axe_B,yerr=axe_A,fmt='.',label='X')
+    py.errorbar(ay_B,ay_A,xerr=aye_B,yerr=aye_A,fmt='.',label='Y')
+    py.legend()
+    py.xscale('log')
+    py.yscale('log')
+    py.xlabel('Accel '+labelB+' (as/yr$^2$)')
+    py.ylabel('Accel '+labelA+' (as/yr$^2$)')
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_accel.png')
+    py.clf()
+
+    velQ = py.quiver(x_A,y_A,vx_diff,vy_diff)
+    py.quiverkey(velQ,1.5,1.7,5e-4,label=r'0.5 mas/yr',color='b',coordinates='data')
+    py.xlabel('X (arcsec)')
+    py.ylabel('Y (arcsec)')
+    py.title('Velocity '+labelA+' - '+labelB)
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_quiver_vel.png')
+    py.clf()
+    accelQ = py.quiver(x_A,y_A,ax_diff,ay_diff)
+    py.quiverkey(accelQ,1.5,1.7,2e-4,label=r'0.2 mas/yr',color='b',coordinates='data')
+    py.xlabel('X (arcsec)')
+    py.ylabel('Y (arcsec)')
+    py.title('Acceleration '+labelA+' - '+labelB)
+    py.savefig(plotRoot+''+labelA+'_'+labelB+'_quiver_accel.png')
+    py.clf()
+    py.close('all')
+
+
+
+
+def star_compAlign(starName, alignA='/g/ghez/align/schappell_14_06_18/',polyA='polyfit_nz/',pointsA='points_nz/',labelA='Old Holo',alignB='/g/ghez/align/18_02_07_newSpeckle/',polyB='polyfit_4_trim/',pointsB='points_4_trim/',labelB='New Holo'):
+
+    pointsA = np.loadtxt(alignA+pointsA+starName+'.points')
+    pointsB = np.loadtxt(alignB+pointsB+starName+'.points')
+    
+    py.clf()
+    py.errorbar(pointsA[:,1],pointsA[:,2],xerr=pointsA[:,3],yerr=pointsA[:,4],fmt='.',label=labelA)
+    py.errorbar(pointsB[:,1],pointsB[:,2],xerr=pointsB[:,3],yerr=pointsB[:,4],fmt='.',label=labelB)
+    py.legend(numpoints=1)
+    py.xlabel('X (as)')
+    py.ylabel('Y (as)')
+    py.title(starName)
+    py.savefig(plotRoot+''+str(starName)+'_compareAlign_XY.png')
+    py.clf()
+    py.errorbar(pointsA[:,0],pointsA[:,2],yerr=pointsA[:,4],fmt='.',label=labelA)
+    py.errorbar(pointsB[:,0],pointsB[:,2],yerr=pointsB[:,4],fmt='.',label=labelB)
+    py.legend(numpoints=1)
+    py.xlabel('Time (years)')
+    py.ylabel('Y (as)')
+    py.title(starName)
+    py.savefig(plotRoot+''+str(starName)+'_compareAlign_tY.png')
+    py.clf()
+    py.errorbar(pointsA[:,0],pointsA[:,1],yerr=pointsA[:,3],fmt='.',label=labelA)
+    py.errorbar(pointsB[:,0],pointsB[:,1],yerr=pointsB[:,3],fmt='.',label=labelB)
+    py.legend(numpoints=1)
+    py.xlabel('Time (years)')
+    py.ylabel('X (as)')
+    py.title(starName)
+    py.savefig(plotRoot+''+str(starName)+'_compareAlign_tX.png')
+    py.clf()
+    py.close('all')
+
+
+
+
+def print_ar_at(x0,x0e,y0,y0e,xa,xae,ya,yae):
+
+    R = math.sqrt(x0**2 + y0**2)
+    ar = ((xa*x0) + (ya*y0)) / R
+    at = ((xa*y0) - (ya*x0)) / R
+    are =  (xae*x0/R)**2 + (yae*y0/R)**2
+    are += (y0*x0e*at/R**2)**2 + (x0*y0e*at/R**2)**2
+    are =  math.sqrt(are)
+    ate =  (xae*y0/R)**2 + (yae*x0/R)**2
+    ate += (y0*x0e*ar/R**2)**2 + (x0*y0e*ar/R**2)**2
+    ate =  math.sqrt(ate)
+
+    print 'radial accel: '+str(ar)+' +/- '+str(are)+' as/yr'
+    print 'significance: '+str(ar/are)
+    print 'tangential accel: '+str(at)+' +/- '+str(ate)+' as/yr'
+    print 'significance: '+str(at/ate)
 
