@@ -1,4 +1,5 @@
 This directory contains code which has been commented, for rest of code, see code_backup directory
+Code was used for work at UCLA as a graduate student researcher
 
 scStars.py - python code with classes around handling and analyzing stellar sample, including Bayesian analysis of late-type cusp. Interface with SQL is used to retrieve sample. Interface with C++ to run MultiNest, likelihood sampling.
 
